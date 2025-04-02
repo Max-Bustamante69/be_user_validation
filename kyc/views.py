@@ -11,6 +11,7 @@ from rest_framework import status
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.decorators import api_view
 from datetime import datetime, timedelta
+from .serializers import SessionDetailsSerializer
 
 
 
@@ -56,8 +57,7 @@ class DiditKYCAPIView(APIView):
 
         # Parameters for Didit
         features = data.get("features", "OCR")
-        tunnel_url = getattr(settings, "TUNNEL_URL", None)
-        callback_url = f"{tunnel_url}/kyc/api/webhook/" if tunnel_url else "https://yourserver.com/kyc/api/webhook/"
+        callback_url = f"http://localhost:3000/user/"
         vendor_data = data.get("vendor_data", data["document_id"])
 
         print("🔹 Callback URL:", callback_url)
@@ -210,3 +210,14 @@ class UpdateStatusAPIView(APIView):
             return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
+class SessionDetailView(APIView):
+    """
+    GET /api/session/<id>/
+    Retrieves a specific session detail by its ID.
+    """
+    permission_classes = [AllowAny]
+    
+    def get(self, request, id):
+        session = get_object_or_404(SessionDetails, session_id=id)
+        serializer = SessionDetailsSerializer(session)
+        return Response(serializer.data)

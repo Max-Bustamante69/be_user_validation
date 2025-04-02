@@ -6,6 +6,7 @@ from .views import (
     RetrieveSessionAPIView,
     UpdateStatusAPIView,
     kyc_test,
+    SessionDetailView,
 )
 
 app_name = "kyc"
@@ -19,6 +20,9 @@ urlpatterns = [
     path("api/kyc/", DiditKYCAPIView.as_view(), name="didit_create_session"),
     path("api/webhook/", didit_webhook, name="didit_webhook"),
     path("api/retrieve/<str:session_id>/", RetrieveSessionAPIView.as_view(), name="didit_retrieve_session"),
+    path("api/retrieve/session/<str:session_id>/", RetrieveSessionAPIView.as_view(), name="didit_retrieve_session"),
     path("api/update-status/<str:session_id>/", UpdateStatusAPIView.as_view(), name="didit_update_status"),
     path("test/", kyc_test, name="kyc_test"),
+    path('api/session/<str:id>/', SessionDetailView.as_view(), name='session_detail'),
+
 ]
