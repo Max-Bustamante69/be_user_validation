@@ -2,7 +2,7 @@ import json
 import hmac
 import hashlib
 from django.conf import settings
-from django.http import JsonResponse, HttpResponse
+from django.http import HttpResponseRedirect, JsonResponse, HttpResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.shortcuts import render, redirect, get_object_or_404
 from rest_framework.views import APIView
@@ -57,7 +57,7 @@ class DiditKYCAPIView(APIView):
 
         # Parameters for Didit
         features = data.get("features", "OCR")
-        callback_url = f"http://localhost:3000/user/"
+        callback_url = f"http://localhost:8000/kyc/api/webhook/"
         vendor_data = data.get("vendor_data", data["document_id"])
 
         print("🔹 Callback URL:", callback_url)
@@ -98,20 +98,18 @@ def didit_webhook(request):
     Endpoint to receive status updates from Didit.
     """
     print("✅ Webhook received!")
-    print(f"Received data: {request.body.decode('utf-8')}")
-    
-    # Log for the method used
     print(f"Method: {request.method}")
-    
-    # Log of the complete request
     print(f"Request: {request}")
     
+    # Manejar solicitudes GET sin procesar JSON
+    if request.method == "GET":
+        return HttpResponseRedirect(f'http://localhost:3000/user/')
+       
     
-
-        
-
-    if request.method == "POST":
+    # Para solicitudes POST, procesar el JSON como antes
+    elif request.method == "POST":
         try:
+            print(f"Received data: {request.body.decode('utf-8')}")
             data = json.loads(request.body)
             
             # Extract main data
@@ -177,10 +175,9 @@ def didit_webhook(request):
         except Exception as e:
             print(f"❌ Error processing webhook: {str(e)}")
             return JsonResponse({"error": str(e)}, status=500)
-    elif request.method == "GET":
-        return redirect(f'http://localhost:3000/user/{session_id}')
     else:
         return JsonResponse({"error": "Method not allowed"}, status=405)
+   
 
 class RetrieveSessionAPIView(APIView):
     """
