@@ -12,11 +12,14 @@ from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.decorators import api_view
 from datetime import datetime, timedelta
 from .serializers import SessionDetailsSerializer
+from rest_framework_simplejwt.authentication import JWTAuthentication
+from rest_framework.permissions import IsAuthenticated, AllowAny, IsAdminUser
 
 
 
 from .models import UserDetails, SessionDetails
 from .utils.didit_client import create_session, retrieve_session, update_session_status
+
 
 def kyc_test(request):
     # Lee el token desde el archivo .env (a través de settings)
@@ -180,10 +183,9 @@ def didit_webhook(request):
    
 
 class RetrieveSessionAPIView(APIView):
-    """
-    GET /kyc/api/retrieve/<session_id>/
-    Retrieves the current information of a session in Didit.
-    """
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+
     def get(self, request, session_id):
         try:
             data = retrieve_session(session_id)
@@ -191,13 +193,15 @@ class RetrieveSessionAPIView(APIView):
         except Exception as e:
             return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
+
 class UpdateStatusAPIView(APIView):
-    """
-    PATCH /kyc/api/update-status/<session_id>/
-    Allows manually updating the status in Didit.
-    """
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+
     def patch(self, request, session_id):
-        new_status = request.data.get("status")
+        print("Request body:", request.data)
+        
+        new_status = request.data.get("new_status")
         if not new_status:
             return Response({"error": "Missing 'status' in request"}, status=status.HTTP_400_BAD_REQUEST)
         try:
@@ -205,8 +209,7 @@ class UpdateStatusAPIView(APIView):
             return Response(updated_data, status=status.HTTP_200_OK)
         except Exception as e:
             return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
-
+        
 class SessionDetailView(APIView):
     """
     GET /api/session/<id>/
