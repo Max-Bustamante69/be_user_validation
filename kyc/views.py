@@ -19,6 +19,7 @@ from django.contrib.auth.models import User
 
 
 
+
 from .models import UserDetails, SessionDetails
 from .utils.didit_client import create_session, retrieve_session, update_session_status
 
@@ -136,7 +137,7 @@ def didit_webhook(request):
             personal_data.nationality = kyc_data.get("issuing_state_name")
             date_of_birth = kyc_data.get("date_of_birth")
             document_type = kyc_data.get("document_type")
-            document_id = kyc_data.get("document_number")
+            document_id = kyc_data.get("personal_number") or kyc_data.get("document_number") 
             first_name = kyc_data.get("first_name")
             last_name = kyc_data.get("last_name")
             
@@ -233,42 +234,10 @@ class SessionDetailView(APIView):
 
 class GetServiceToken(APIView):
     permission_classes = [AllowAny]
-    
     def get(self, request):
-        # Check the origin header
-        origin = request.headers.get('Origin') or request.headers.get('Referer')
+
         
-        # List of allowed origins
-        frontend_url = settings.FRONTEND_URL
-        allowed_origins = [frontend_url]
-        
-        # For local development, allow common variants
-        if 'localhost' in frontend_url:
-            allowed_origins.extend([
-                frontend_url.replace('http://', 'https://'),
-                frontend_url.replace('localhost', '127.0.0.1'),
-                frontend_url.replace('localhost:3000', 'localhost:5173')  # Vite default port
-            ])
-        
-        # Add your production URLs
-        if settings.DEBUG is False:
-            allowed_origins.append('https://pagui-kyc.vercel.app')
-        
-        # Check if origin is allowed
-        is_allowed = False
-        if origin:
-            for allowed in allowed_origins:
-                if origin.startswith(allowed):
-                    is_allowed = True
-                    break
-        
-        if not is_allowed:
-            return Response(
-                {"error": "Unauthorized origin"},
-                status=status.HTTP_403_FORBIDDEN
-            )
-        
-        # Origin is allowed, proceed with token generation
+        # Create or get service account
         user, created = User.objects.get_or_create(
             username='service_account',
             defaults={'is_active': True}
@@ -276,7 +245,10 @@ class GetServiceToken(APIView):
         
         refresh = RefreshToken.for_user(user)
         
+        # Return the token with timestamp
         return Response({
             'access': str(refresh.access_token),
-            'refresh': str(refresh)
+            'refresh': str(refresh),
         })
+    
+  
