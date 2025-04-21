@@ -4,16 +4,18 @@ import hashlib
 from django.conf import settings
 from django.http import HttpResponseRedirect, JsonResponse, HttpResponse
 from django.views.decorators.csrf import csrf_exempt
-from django.shortcuts import render, redirect, get_object_or_404
+from django.shortcuts import render, get_object_or_404
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated, AllowAny
-from rest_framework.decorators import api_view
 from datetime import datetime, timedelta
 from .serializers import SessionDetailsSerializer
 from rest_framework_simplejwt.authentication import JWTAuthentication
-from rest_framework.permissions import IsAuthenticated, AllowAny, IsAdminUser
+from rest_framework.permissions import IsAuthenticated
+from rest_framework_simplejwt.tokens import RefreshToken
+from django.contrib.auth.models import User
+
 
 
 
@@ -35,8 +37,7 @@ class DiditKYCAPIView(APIView):
     POST /kyc/api/kyc/
     Creates a new KYC session in Didit and stores it locally.
     """
-    permission_classes = [AllowAny]
-    authentication_classes = []  # No requiere autenticación para crear una sesión KYC
+
     def post(self, request):
         data = request.data
         print("🔹 Received data:", data)
@@ -58,9 +59,10 @@ class DiditKYCAPIView(APIView):
             status="pending"
         )
 
+        
         # Parameters for Didit
         features = data.get("features", "OCR")
-        callback_url = f"http://localhost:8000/kyc/api/webhook/"
+        callback_url = f"{settings.BACKEND_URL}/kyc/api/webhook/"
         vendor_data = data.get("vendor_data", data["document_id"])
 
         print("🔹 Callback URL:", callback_url)
@@ -106,7 +108,7 @@ def didit_webhook(request):
     
     # Manejar solicitudes GET sin procesar JSON
     if request.method == "GET":
-        return HttpResponseRedirect(f'http://localhost:3000/user/')
+        return HttpResponseRedirect(f'{settings.FRONTEND_URL}/user-validation/')
        
     
     # Para solicitudes POST, procesar el JSON como antes
@@ -129,11 +131,13 @@ def didit_webhook(request):
             
             # Save nationality, date of birth and document type if available
             kyc_data = data.get("decision", {}).get("kyc", {})
+            print(f"🔹 KYC data: {kyc_data}")
             personal_data = session_details.personal_data
             personal_data.nationality = kyc_data.get("issuing_state_name")
             date_of_birth = kyc_data.get("date_of_birth")
             document_type = kyc_data.get("document_type")
             document_id = kyc_data.get("document_number")
+            first_name = kyc_data.get("first_name")
             last_name = kyc_data.get("last_name")
             
             # In didit_webhook, use update_or_create instead of separate operations:
@@ -144,8 +148,11 @@ def didit_webhook(request):
                 personal_data_updates['date_of_birth'] = date_of_birth
             if document_type:
                 personal_data_updates['document_type'] = document_type
+            if first_name:
+                personal_data_updates['first_name'] = first_name
             if last_name:
                 personal_data_updates['last_name'] = last_name
+                
             
             # Add nationality if it exists
             if kyc_data.get("issuing_state_name"):
@@ -215,9 +222,61 @@ class SessionDetailView(APIView):
     GET /api/session/<id>/
     Retrieves a specific session detail by its ID.
     """
-    permission_classes = [AllowAny]
     
     def get(self, request, id):
         session = get_object_or_404(SessionDetails, session_id=id)
         serializer = SessionDetailsSerializer(session)
+        print(serializer.data)
         return Response(serializer.data)
+    
+    
+
+class GetServiceToken(APIView):
+    permission_classes = [AllowAny]
+    
+    def get(self, request):
+        # Check the origin header
+        origin = request.headers.get('Origin') or request.headers.get('Referer')
+        
+        # List of allowed origins
+        frontend_url = settings.FRONTEND_URL
+        allowed_origins = [frontend_url]
+        
+        # For local development, allow common variants
+        if 'localhost' in frontend_url:
+            allowed_origins.extend([
+                frontend_url.replace('http://', 'https://'),
+                frontend_url.replace('localhost', '127.0.0.1'),
+                frontend_url.replace('localhost:3000', 'localhost:5173')  # Vite default port
+            ])
+        
+        # Add your production URLs
+        if settings.DEBUG is False:
+            allowed_origins.append('https://pagui-kyc.vercel.app')
+        
+        # Check if origin is allowed
+        is_allowed = False
+        if origin:
+            for allowed in allowed_origins:
+                if origin.startswith(allowed):
+                    is_allowed = True
+                    break
+        
+        if not is_allowed:
+            return Response(
+                {"error": "Unauthorized origin"},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        # Origin is allowed, proceed with token generation
+        user, created = User.objects.get_or_create(
+            username='service_account',
+            defaults={'is_active': True}
+        )
+        
+        refresh = RefreshToken.for_user(user)
+        
+        return Response({
+            'access': str(refresh.access_token),
+            'refresh': str(refresh)
+        })
