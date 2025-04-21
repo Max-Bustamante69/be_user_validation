@@ -60,6 +60,11 @@ TUNNEL_URL = os.getenv('TUNNEL_URL')  # Usar esta variable en lugar de WEBHOOK_U
 
 ALLOWED_HOSTS = ['localhost', '127.0.0.1', '0.0.0.0',  '.vercel.app']
 KYC_SECRET = os.getenv("KYC_SECRET")
+JWT_TOKEN = os.getenv("JWT_TOKEN")
+
+
+BACKEND_URL = os.environ.get('BACKEND_URL', 'http://localhost:8000')
+FRONTEND_URL = os.environ.get('FRONTEND_URL', 'http://localhost:3000')
 
 
 MIDDLEWARE = [
@@ -80,7 +85,30 @@ MIDDLEWARE = [
 ]
 
 ROOT_URLCONF = 'KYC_Project.urls'
-CORS_ALLOW_ALL_ORIGINS = True 
+# Replace CORS_ALLOW_ALL_ORIGINS with specific origins
+CORS_ALLOW_ALL_ORIGINS = False
+CORS_ALLOWED_ORIGINS = [
+    FRONTEND_URL,
+    'https://pagui-kyc.vercel.app',
+    # Add localhost variants for development
+    'http://localhost:3000',
+    'http://localhost:5173',
+    'http://127.0.0.1:3000',
+    'http://127.0.0.1:5173'
+]
+
+CORS_ALLOW_CREDENTIALS = True
+CORS_ALLOW_HEADERS = [
+    'accept',
+    'accept-encoding',
+    'authorization',
+    'content-type',
+    'dnt',
+    'origin',
+    'user-agent',
+    'x-csrftoken',
+    'x-requested-with',
+]
 
 
 REST_FRAMEWORK = {
@@ -94,9 +122,14 @@ REST_FRAMEWORK = {
 
 from datetime import timedelta
 SIMPLE_JWT = {
-    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=5),
-    'REFRESH_TOKEN_LIFETIME': timedelta(days=1),
-    # Otros ajustes según sea necesario...
+    'ACCESS_TOKEN_LIFETIME': timedelta(days=1),  # Increased from 5 minutes
+    'REFRESH_TOKEN_LIFETIME': timedelta(days=7), # Increased from 1 day
+    'ALGORITHM': 'HS256',
+    'SIGNING_KEY': SECRET_KEY,
+    'AUTH_HEADER_TYPES': ('Bearer',),
+    'AUTH_HEADER_NAME': 'HTTP_AUTHORIZATION',
+    'USER_ID_FIELD': 'id',
+    'USER_ID_CLAIM': 'user_id',
 }
 
 
