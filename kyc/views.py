@@ -137,7 +137,7 @@ def didit_webhook(request):
             personal_data.nationality = kyc_data.get("issuing_state_name")
             date_of_birth = kyc_data.get("date_of_birth")
             document_type = kyc_data.get("document_type")
-            document_id = kyc_data.get("document_number")
+            document_id = kyc_data.get("personal_number") or kyc_data.get("document_number") 
             first_name = kyc_data.get("first_name")
             last_name = kyc_data.get("last_name")
             
