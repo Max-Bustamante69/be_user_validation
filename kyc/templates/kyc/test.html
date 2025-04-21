@@ -84,7 +84,7 @@
   
   <script>
     // Asigna el token que viene del contexto de Django
-    const jwtToken = "{{ jwt_token }}";
+
     document.getElementById('kycForm').addEventListener('submit', async function(e) {
       e.preventDefault();
       const resultDiv = document.getElementById('kycResult');
@@ -98,11 +98,6 @@
           document_id: document.getElementById('documentId').value,
           document_type: document.getElementById('documentType').value,
           features: document.getElementById('features').value
-        },
-        {
-          headers: {
-            Authorization: `Bearer ${jwtToken}`
-          }
         });
         // Redirigir automáticamente al usuario a la página de Didit:
         window.location.href = response.data.verification_url;
