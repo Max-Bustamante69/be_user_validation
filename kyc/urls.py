@@ -7,16 +7,14 @@ from .views import (
     UpdateStatusAPIView,
     kyc_test,
     SessionDetailView,
+    GetServiceToken,    
 )
 
 app_name = "kyc"
 
 urlpatterns = [
     # Rutas JWT
-    path("api/token/", TokenObtainPairView.as_view(), name="token_obtain_pair"),
-    path("api/token/refresh/", TokenRefreshView.as_view(), name="token_refresh"),
-    
-    
+    path('api/service-token/', GetServiceToken.as_view(), name='service_token'),
     path("api/kyc/", DiditKYCAPIView.as_view(), name="didit_create_session"),
     path("api/webhook/", didit_webhook, name="didit_webhook"),
     path("api/retrieve/<str:session_id>/", RetrieveSessionAPIView.as_view(), name="didit_retrieve_session"),
