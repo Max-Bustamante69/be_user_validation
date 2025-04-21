@@ -12,7 +12,7 @@ class UserDetails(models.Model):
         return f"{self.first_name} {self.last_name} - {self.document_id}"
 
 class SessionDetails(models.Model):
-    personal_data = models.OneToOneField(UserDetails, on_delete=models.CASCADE, related_name='session_details')
+    personal_data = models.OneToOneField(UserDetails, on_delete=models.SET_NULL, null=True, related_name='session_details')
     session_id = models.CharField(max_length=255, unique=True, null=True, blank=True)
     status = models.CharField(max_length=50, default="pending")
     created_at = models.DateTimeField(auto_now_add=True)

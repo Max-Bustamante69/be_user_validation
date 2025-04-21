@@ -54,11 +54,15 @@ def create_session(features, callback_url, vendor_data):
 
     response = requests.post(CREATE_SESSION_URL, headers=headers, json=body)
     print("🔹 Creando sesión en Didit con datos:")
-    print(body)
     print("🔹 Respuesta Status:", response.status_code)
     print("🔹 Respuesta:", response.text[:500])
     response.raise_for_status()
-    return response.json()
+    # Add the access_token to the response for further use
+    
+    reponse_json = response.json()
+    reponse_json["access_token"] = access_token
+    print("🔹 Respuesta JSON:", reponse_json)
+    return reponse_json
 
 def retrieve_session(session_id):
     access_token = get_client_token()
@@ -74,28 +78,5 @@ def retrieve_session(session_id):
     print("🔹 Recuperando decision para session_id:", session_id)
     print("🔹 Decision Response Status:", response.status_code)
     print("🔹 Decision Response:", response.text[:500])
-    response.raise_for_status()
-    return response.json()
-
-def update_session_status(session_id, new_status, comment=None):
-    access_token = get_client_token()
-    if not access_token:
-        raise Exception("Error fetching client token for update.")
-    
-    url = f"https://verification.didit.me/v1/session/{session_id}/update-status/"
-    headers = {
-        "Content-Type": "application/json",
-        "Authorization": f"Bearer {access_token}"
-    }
-    
-    body = {
-        "new_status": new_status
-    }
-    if comment:
-        body["comment"] = comment
-
-    response = requests.patch(url, headers=headers, json=body)
-    print("🔹 Update Status Response Status:", response.status_code)
-    print("🔹 Update Status Response:", response.text[:500])
     response.raise_for_status()
     return response.json()
