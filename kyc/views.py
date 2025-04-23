@@ -167,19 +167,29 @@ def didit_webhook(request):
             return JsonResponse({"error": str(e)}, status=500)
     else:
         return JsonResponse({"error": "Method not allowed"}, status=405)
+    
+
 class RetrieveSessionAPIView(APIView):
     authentication_classes = [JWTAuthentication]
     permission_classes = [IsAuthenticated]
 
-    def get(self, request, session_id):
+    def get(self, request, document_id):
         try:
+            session_details = get_object_or_404(
+                SessionDetails,
+                personal_data__document_id=document_id
+            )
+            session_id = session_details.session_id
             data = retrieve_session(session_id)
-            return Response(data, status=status.HTTP_200_OK)
+            return Response(
+                {"session_id": session_id, "data": data},
+                status=status.HTTP_200_OK
+            )
         except Exception as e:
-            return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
-    
-    
+            return Response(
+                {"error": str(e)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
 
 class GetServiceToken(APIView):
     permission_classes = [AllowAny]
@@ -392,4 +402,3 @@ class ResolveSessionAPIView(APIView):
                     {"error": f"Failed to update session: {str(e)}"},
                     status=status.HTTP_500_INTERNAL_SERVER_ERROR
                 )
-                
