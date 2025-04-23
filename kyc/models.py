@@ -17,7 +17,7 @@ class SessionDetails(models.Model):
     status = models.CharField(max_length=50, default="pending")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
-    verification_url = models.URLField(null=True, blank=True)
+    verification_url = models.CharField(null=True, blank=True, max_length=400)
 
     def __str__(self):
         return f"Session {self.session_id} - {self.status}"
