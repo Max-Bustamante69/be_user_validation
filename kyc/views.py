@@ -71,10 +71,12 @@ class DiditKYCAPIView(APIView):
             status="pending"
         )
 
-        # Parámetros para Didit
-        features     = data.get("features", "OCR")
-        vendor_data  = data.get("vendor_data", document_id)
-        callback_url = f"{settings.BACKEND_URL}/kyc/api/webhook/?vendor_data={vendor_data}"
+        
+        # Parameters for Didit
+        features = data.get("features", "OCR")
+        vendor_data = data.get("vendor_data", data["document_id"])
+        callback_url = f"{settings.FRONTEND_URL}/user-validation/{vendor_data}"
+
         print("🔹 Callback URL:", callback_url)
 
         try:
@@ -111,26 +113,11 @@ def didit_webhook(request):
     print(f"Method: {request.method}")
     print(f"Request: {request}")
     
-    # Manejar solicitudes GET sin procesar JSON
-    if request.method == "GET":
-        # Retrieve vendor_data from query parameters
-        vendor_data = request.GET.get("vendor_data")
-        if not vendor_data:
-            return JsonResponse({"error": "Missing vendor_data in query parameters"}, status=400)
 
-        # Look up the session_id using vendor_data
-        session_details = SessionDetails.objects.filter(personal_data__document_id=vendor_data).first()
-        if not session_details:
-            return JsonResponse({"error": "No session found for the given vendor_data"}, status=404)
-
-        session_id = session_details.session_id
-        print(f"✅ Retrieved session_id from database: {session_id}")
-        callback = f'{settings.FRONTEND_URL}/user-validation/'
-        return HttpResponseRedirect(f'{callback}?session_id={session_id}')
        
     
     # Para solicitudes POST, procesar el JSON como antes
-    elif request.method == "POST":
+    if request.method == "POST":
         try:
             print(f"Received data: {request.body.decode('utf-8')}")
             data = json.loads(request.body)
