@@ -38,65 +38,157 @@ class DiditKYCAPIView(APIView):
     POST /kyc/api/kyc/
     Creates a new KYC session in Didit and stores it locally.
     """
-
     def post(self, request):
         data = request.data
         print("🔹 Received data:", data)
-        
-        if not data.get("first_name") or not data.get("last_name") or not data.get("document_id"):
-            return Response({"error": "Missing fields 'first_name', 'last_name', or 'document_id'."},
-                            status=status.HTTP_400_BAD_REQUEST)
 
-        # Register personal data locally in the database
+        # Validate required fields
+        if not data.get("first_name") or not data.get("last_name") or not data.get("document_id"):
+            return Response(
+                {"error": "Missing fields 'first_name', 'last_name', or 'document_id'."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        document_id = data["document_id"]
+        features = data.get("features", "OCR")
+        vendor_data = data.get("vendor_data", data["document_id"])
+        callback_url = f"{settings.FRONTEND_URL}/user-validation/{vendor_data}"
+
+        # Check if user exists
+        existing_user = UserDetails.objects.filter(document_id=document_id).first()
+        
+        if existing_user:
+            return self.handle_existing_user(existing_user, data, features, callback_url, vendor_data)
+        else:
+            return self.create_new_user_session(data, features, callback_url, vendor_data)
+
+    def handle_existing_user(self, existing_user, data, features, callback_url, vendor_data):
+        """Handle cases when a user with the document_id already exists"""
+        
+        # Get the latest session for this user
+        latest_session = SessionDetails.objects.filter(personal_data=existing_user).order_by('-created_at').first()
+        
+        if not latest_session:
+            # User exists but has no session (unusual case) - create new session
+            return self.create_session_for_existing_user(existing_user, features, callback_url, vendor_data)
+            
+        # Handle based on the latest session status
+        session_status = latest_session.status.lower() if latest_session.status else "unknown"
+        
+        if session_status == "approved":
+            # User already verified - return conflict
+            return Response(
+                {
+                    "error": "Ese usuario ya está registrado y tiene una sesión aprobada.",
+                    "message": f"User with document_id {existing_user.document_id} already exists and has an approved session.",
+                    "user_id": existing_user.id
+                },
+                status=status.HTTP_409_CONFLICT
+            )
+        
+        elif session_status == "pending" or session_status == "in_progress" or session_status == "in_review":
+            # Session is still active - return existing session info
+            return Response(
+                {
+                    "message": "User already has an active verification session",
+                    "session_id": latest_session.session_id,
+                    "status": latest_session.status,
+                    "verification_url": latest_session.verification_url,
+                    "user_id": existing_user.id
+                },
+                status=status.HTTP_200_OK
+            )
+        
+        elif session_status in ["expired", "declined", "abandoned", "kyc_expired"]:
+            # Create a new session for the existing user
+            return self.create_session_for_existing_user(existing_user, features, callback_url, vendor_data)
+            
+        else:
+            # Unknown status - create new session to be safe
+            return self.create_session_for_existing_user(existing_user, features, callback_url, vendor_data)
+    
+    def create_session_for_existing_user(self, existing_user, features, callback_url, vendor_data):
+        """Create a new session for an existing user"""
+        
+        # Create new session details
+        session_details = SessionDetails.objects.create(
+            personal_data=existing_user,
+            status="pending"
+        )
+        
+        try:
+            # Create session in Didit
+            session_data = create_session(features, callback_url, vendor_data)
+            print("🔹 create_session response:", session_data)
+            
+            # Update the session details
+            session_details.session_id = session_data["session_id"]
+            session_details.save()
+            
+            # Create response
+            response_data = {
+                "message": "New KYC session created for existing user",
+                "session_id": session_data["session_id"],
+                "verification_url": session_data["url"],
+                "user_id": existing_user.id,
+                "expires_at": session_data.get(
+                    "expires_at",
+                    (datetime.now() + timedelta(days=7)).isoformat()
+                )
+            }
+            return Response(response_data, status=status.HTTP_201_CREATED)
+            
+        except Exception as e:
+            print(f"❌ Error creating session for existing user: {str(e)}")
+            session_details.delete()
+            return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    
+    def create_new_user_session(self, data, features, callback_url, vendor_data):
+        """Create a new user and session"""
+        
+        # Create new personal data
         personal_data = UserDetails.objects.create(
             first_name=data["first_name"],
             last_name=data["last_name"],
             document_id=data["document_id"]
         )
-
-        # Register session details locally in the database
+        
+        # Create new session details
         session_details = SessionDetails.objects.create(
             personal_data=personal_data,
             status="pending"
         )
-
         
-        # Parameters for Didit
-        features = data.get("features", "OCR")
-        callback_url = f"{settings.BACKEND_URL}/kyc/api/webhook/"
-        vendor_data = data.get("vendor_data", data["document_id"])
-
-        print("🔹 Callback URL:", callback_url)
-
         try:
+            # Create session in Didit
             session_data = create_session(features, callback_url, vendor_data)
             print("🔹 create_session response:", session_data)
             
-            # Update the record with all session data
+            # Update the session details
             session_details.session_id = session_data["session_id"]
+            session_details.verification_url = session_data["url"]
             session_details.save()
-
+            
             # Create response
             response_data = {
                 "message": "KYC session created successfully",
                 "session_id": session_data["session_id"],
-                "verification_url": session_data["url"]
+                "verification_url": session_data["url"],
+                "expires_at": session_data.get(
+                    "expires_at",
+                    (datetime.now() + timedelta(days=7)).isoformat()
+                )
             }
-            
-            # Add optional fields if available
-            if "expires_at" in session_data:
-                response_data["expires_at"] = session_data["expires_at"]
-            else:
-                response_data["expires_at"] = (datetime.now() + timedelta(days=7)).isoformat()
-            
             return Response(response_data, status=status.HTTP_201_CREATED)
             
         except Exception as e:
             print("❌ Error in DiditKYCAPIView:", str(e))
-            personal_data.delete()
+            # Clean up created data
             session_details.delete()
+            personal_data.delete()
             return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
+        
+        
 @csrf_exempt
 def didit_webhook(request):
     """
@@ -107,15 +199,11 @@ def didit_webhook(request):
     print(f"Method: {request.method}")
     print(f"Request: {request}")
     
-    # Manejar solicitudes GET sin procesar JSON
-    if request.method == "GET":
-        #Destructure the whole request to the ground
-        # print(request.
-        return HttpResponseRedirect(f'{settings.FRONTEND_URL}/user-validation/')
+
        
     
     # Para solicitudes POST, procesar el JSON como antes
-    elif request.method == "POST":
+    if request.method == "POST":
         try:
             print(f"Received data: {request.body.decode('utf-8')}")
             data = json.loads(request.body)
@@ -156,19 +244,29 @@ def didit_webhook(request):
             return JsonResponse({"error": str(e)}, status=500)
     else:
         return JsonResponse({"error": "Method not allowed"}, status=405)
+    
+
 class RetrieveSessionAPIView(APIView):
     authentication_classes = [JWTAuthentication]
     permission_classes = [IsAuthenticated]
 
-    def get(self, request, session_id):
+    def get(self, request, document_id):
         try:
+            session_details = get_object_or_404(
+                SessionDetails,
+                personal_data__document_id=document_id
+            )
+            session_id = session_details.session_id
             data = retrieve_session(session_id)
-            return Response(data, status=status.HTTP_200_OK)
+            return Response(
+                {"session_id": session_id, "data": data},
+                status=status.HTTP_200_OK
+            )
         except Exception as e:
-            return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
-    
-    
+            return Response(
+                {"error": str(e)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
 
 class GetServiceToken(APIView):
     permission_classes = [AllowAny]
@@ -189,6 +287,47 @@ class GetServiceToken(APIView):
             'refresh': str(refresh),
         })
     
+def validate_and_update_user_details(user_details, kyc_data):
+    """
+    Valida y actualiza los detalles del usuario con los datos de KYC.
+    """
+    document_id = kyc_data.get("personal_number") or kyc_data.get("document_number")
+    first_name = kyc_data.get("first_name", "Unknown")
+    last_name = kyc_data.get("last_name", "")
+    document_type = kyc_data.get("document_type", "unknown")
+    date_of_birth = kyc_data.get("date_of_birth")
+    nationality = kyc_data.get("issuing_state_name")
+
+    if document_id:
+        user_details.document_id = document_id
+    if first_name:
+        user_details.first_name = first_name
+    if last_name:
+        user_details.last_name = last_name
+    if document_type:
+        user_details.document_type = document_type
+    if date_of_birth:
+        user_details.date_of_birth = date_of_birth
+    if nationality:
+        user_details.nationality = nationality
+
+    user_details.save()
+    return user_details
+
+
+def check_duplicate_document_id(document_id, session_details):
+    """
+    Verifica si el document_id ya existe en otro usuario y elimina la sesión y el usuario si es necesario.
+    """
+    existing_user = UserDetails.objects.filter(document_id=document_id).exclude(id=session_details.personal_data.id).first()
+    if existing_user:
+        # Eliminar la sesión y el usuario relacionados con el session_id
+        session_details.personal_data.delete()
+        session_details.delete()
+       
+        print(f"❌ Duplicate document_id found. Deleted session and user related to session_id: {session_details.session_id}")
+        return True
+    return False
   
 class ResolveSessionAPIView(APIView):
     """
@@ -231,154 +370,52 @@ class ResolveSessionAPIView(APIView):
 
     def patch(self, request, session_id):
         try:
+            # Recuperar la sesión de Didit y los detalles locales
             didit_session = retrieve_session(session_id)
             session_details = get_object_or_404(SessionDetails, session_id=session_id)
             kyc_data = didit_session.get("kyc", {})
-            print(f"🔹 KYC data: {kyc_data}")
 
             if not kyc_data:
-                print("❌ No KYC data found")
                 return Response({"error": "No KYC data found in session"}, status=status.HTTP_400_BAD_REQUEST)
 
+            # Extraer el document_id del KYC
             document_id = kyc_data.get("personal_number") or kyc_data.get("document_number")
-            first_name = kyc_data.get("first_name", "Unknown")
-            last_name = kyc_data.get("last_name", "")
-            document_type = kyc_data.get("document_type", "unknown")
-            date_of_birth = kyc_data.get("date_of_birth")
-            nationality = kyc_data.get("issuing_state_name")
+            if not document_id:
+                return Response({"error": "Missing document ID in KYC data"}, status=status.HTTP_400_BAD_REQUEST)
 
-            print(f"Document ID: {document_id}, First Name: {first_name}, Last Name: {last_name}")
+            # Verificar si el document_id ya existe en otro usuario
+            if check_duplicate_document_id(document_id, session_details):
+                return Response({"error": "Duplicate document_id found. Session and user deleted."}, status=status.HTTP_400_BAD_REQUEST)
 
+            # Actualizar o crear los detalles del usuario
             if not session_details.personal_data:
-                if not document_id:
-                    print("❌ Missing document ID in KYC data")
-                    return Response({"error": "Missing document ID in KYC data"}, status=status.HTTP_400_BAD_REQUEST)
                 user_details = UserDetails.objects.create(
-                    first_name=first_name,
-                    last_name=last_name,
+                    first_name=kyc_data.get("first_name", "Unknown"),
+                    last_name=kyc_data.get("last_name", ""),
                     document_id=document_id,
-                    document_type=document_type,
-                    date_of_birth=date_of_birth,
-                    nationality=nationality
+                    document_type=kyc_data.get("document_type", "unknown"),
+                    date_of_birth=kyc_data.get("date_of_birth"),
+                    nationality=kyc_data.get("issuing_state_name"),
                 )
-                print(f"Created UserDetails: {user_details.id}")
                 session_details.personal_data = user_details
                 session_details.save()
-                print(f"Linked UserDetails to SessionDetails: {session_details.id}")
+                print(f"Created new UserDetails with ID {user_details.id} for session {session_id}")
             else:
                 user_details = session_details.personal_data
-                if document_id:
-                    user_details.document_id = document_id
-                if document_type:
-                    user_details.document_type = document_type
-                if first_name:
-                    user_details.first_name = first_name
-                if last_name:
-                    user_details.last_name = last_name
-                if date_of_birth:
-                    user_details.date_of_birth = date_of_birth
-                if nationality:
-                    user_details.nationality = nationality
-                user_details.save()
-                print(f"Updated UserDetails: {user_details.id}")
+                validate_and_update_user_details(user_details, kyc_data)
+                print(f"Updated UserDetails with ID {user_details.id} for session {session_id}")
 
+            # Actualizar el estado de la sesión
             status_from_didit = kyc_data.get("status") or didit_session.get("status")
             if status_from_didit:
                 session_details.status = status_from_didit.lower()
                 session_details.save()
                 print(f"Updated SessionDetails status: {session_details.status}")
 
+            # Serializar y devolver los detalles de la sesión
             serializer = SessionDetailsSerializer(session_details)
             return Response(serializer.data, status=status.HTTP_200_OK)
 
         except Exception as e:
             print(f"❌ Error updating session data: {str(e)}")
-            print(traceback.format_exc())
-            return Response(
-                {"error": f"Failed to update session: {str(e)}"},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
-
-            try:
-                # Retrieve the session data from Didit
-                didit_session = retrieve_session(session_id)
-                # Get our local record
-                session_details = get_object_or_404(SessionDetails, session_id=session_id)
-                
-                # Extract the KYC data from the session
-                kyc_data = didit_session.get("kyc", {})
-                print(f"🔹 KYC data: {kyc_data}")
-                
-                if not kyc_data:
-                    return Response({"error": "No KYC data found in session"}, 
-                                    status=status.HTTP_400_BAD_REQUEST)
-                
-                # Prepare the user details data
-                document_id = kyc_data.get("personal_number") or kyc_data.get("document_number")
-                first_name = kyc_data.get("first_name", "Unknown")
-                last_name = kyc_data.get("last_name", "")
-                document_type = kyc_data.get("document_type", "unknown")
-                date_of_birth = kyc_data.get("date_of_birth")
-                nationality = kyc_data.get("issuing_state_name")
-                
-                # Handle the case where there's no personal data
-                if not session_details.personal_data:
-                    # Create UserDetails with the required fields
-                    if not document_id:
-                        return Response({"error": "Missing document ID in KYC data"}, 
-                                        status=status.HTTP_400_BAD_REQUEST)
-                        
-                    # Create with initial data
-                    user_details = UserDetails.objects.create(
-                        first_name=first_name,
-                        last_name=last_name,
-                        document_id=document_id,
-                        document_type=document_type,
-                        date_of_birth=date_of_birth,
-                        nationality=nationality
-                    )
-                    
-                    # Associate with session
-                    session_details.personal_data = user_details
-                    session_details.save()
-                    
-                    print(f"Created new UserDetails with ID {user_details.id} for session {session_id}")
-                else:
-                    # Update existing UserDetails
-                    user_details = session_details.personal_data
-                    
-                    # Update fields if they exist in KYC data
-                    if document_id:
-                        user_details.document_id = document_id
-                    if document_type:
-                        user_details.document_type = document_type
-                    if first_name:
-                        user_details.first_name = first_name
-                    if last_name:
-                        user_details.last_name = last_name
-                    if date_of_birth:
-                        user_details.date_of_birth = date_of_birth
-                    if nationality:
-                        user_details.nationality = nationality
-                        
-                    # Save the updated user details
-                    user_details.save()
-                    print(f"Updated UserDetails with ID {user_details.id} for session {session_id}")
-                
-                # Update session status from Didit response
-                status_from_didit = kyc_data.get("status") or didit_session.get("status")
-                if status_from_didit:
-                    session_details.status = status_from_didit.lower()
-                    session_details.save()
-                
-                # Return updated session details
-                serializer = SessionDetailsSerializer(session_details)
-                return Response(serializer.data, status=status.HTTP_200_OK)
-                
-            except Exception as e:
-                print(f"❌ Error updating session data: {str(e)}")
-                return Response(
-                    {"error": f"Failed to update session: {str(e)}"},
-                    status=status.HTTP_500_INTERNAL_SERVER_ERROR
-                )
-                
+            return Response({"error": f"Failed to update session: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
