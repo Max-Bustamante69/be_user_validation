@@ -3,7 +3,7 @@ from django.db import models
 class UserDetails(models.Model):
     first_name = models.CharField(max_length=255)
     last_name = models.CharField(max_length=255, default="")
-    document_id = models.CharField(max_length=100)
+    document_id = models.CharField(max_length=100, unique=True)
     document_type = models.CharField(max_length=50, default="unknown")  # Nuevo campo para el tipo de documento
     nationality = models.CharField(max_length=100, null=True, blank=True)
     date_of_birth = models.DateField(null=True, blank=True)
