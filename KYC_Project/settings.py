@@ -88,7 +88,6 @@ ROOT_URLCONF = 'KYC_Project.urls'
 # Replace CORS_ALLOW_ALL_ORIGINS with specific origins
 CORS_ALLOW_ALL_ORIGINS = False
 CORS_ALLOWED_ORIGINS = [
-    FRONTEND_URL,
     'https://pagui-kyc.vercel.app',
     # Add localhost variants for development
     'http://localhost:3000',
