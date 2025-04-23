@@ -38,65 +38,69 @@ class DiditKYCAPIView(APIView):
     POST /kyc/api/kyc/
     Creates a new KYC session in Didit and stores it locally.
     """
-
     def post(self, request):
         data = request.data
         print("🔹 Received data:", data)
-        
-        if not data.get("first_name") or not data.get("last_name") or not data.get("document_id"):
-            return Response({"error": "Missing fields 'first_name', 'last_name', or 'document_id'."},
-                            status=status.HTTP_400_BAD_REQUEST)
 
-        # Register personal data locally in the database
+        # Validar campos obligatorios
+        if not data.get("first_name") or not data.get("last_name") or not data.get("document_id"):
+            return Response(
+                {"error": "Missing fields 'first_name', 'last_name', or 'document_id'."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        document_id = data["document_id"]
+
+        # Si ya existe un UserDetails con ese document_id, retornar error
+        if UserDetails.objects.filter(document_id=document_id).exists():
+            return Response(
+                {"error": "Ese usuario ya está registrado"},
+                status=status.HTTP_409_CONFLICT
+            )
+
+        # Registrar personal data localmente
         personal_data = UserDetails.objects.create(
             first_name=data["first_name"],
             last_name=data["last_name"],
-            document_id=data["document_id"]
+            document_id=document_id
         )
 
-        # Register session details locally in the database
+        # Registrar session details localmente
         session_details = SessionDetails.objects.create(
             personal_data=personal_data,
             status="pending"
         )
 
-        
-        # Parameters for Didit
-        features = data.get("features", "OCR")
-        vendor_data = data.get("vendor_data", data["document_id"])
+        # Parámetros para Didit
+        features     = data.get("features", "OCR")
+        vendor_data  = data.get("vendor_data", document_id)
         callback_url = f"{settings.BACKEND_URL}/kyc/api/webhook/?vendor_data={vendor_data}"
-
         print("🔹 Callback URL:", callback_url)
 
         try:
             session_data = create_session(features, callback_url, vendor_data)
             print("🔹 create_session response:", session_data)
-            
-            # Update the record with all session data
+
             session_details.session_id = session_data["session_id"]
             session_details.save()
 
-            # Create response
             response_data = {
-                "message": "KYC session created successfully",
-                "session_id": session_data["session_id"],
-                "verification_url": session_data["url"]
+                "message":          "KYC session created successfully",
+                "session_id":       session_data["session_id"],
+                "verification_url": session_data["url"],
+                "expires_at":       session_data.get(
+                                         "expires_at",
+                                         (datetime.now() + timedelta(days=7)).isoformat()
+                                     )
             }
-            
-            # Add optional fields if available
-            if "expires_at" in session_data:
-                response_data["expires_at"] = session_data["expires_at"]
-            else:
-                response_data["expires_at"] = (datetime.now() + timedelta(days=7)).isoformat()
-            
             return Response(response_data, status=status.HTTP_201_CREATED)
-            
+
         except Exception as e:
             print("❌ Error in DiditKYCAPIView:", str(e))
-            personal_data.delete()
+            # Limpiar solo lo creado en este request
             session_details.delete()
+            personal_data.delete()
             return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
 @csrf_exempt
 def didit_webhook(request):
     """
