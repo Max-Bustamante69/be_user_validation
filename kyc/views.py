@@ -84,6 +84,7 @@ class DiditKYCAPIView(APIView):
             print("🔹 create_session response:", session_data)
 
             session_details.session_id = session_data["session_id"]
+            session_details.verification_url = session_data["url"]
             session_details.save()
 
             response_data = {
@@ -103,6 +104,7 @@ class DiditKYCAPIView(APIView):
             session_details.delete()
             personal_data.delete()
             return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        
 @csrf_exempt
 def didit_webhook(request):
     """
