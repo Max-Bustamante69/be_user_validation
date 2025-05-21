@@ -50,7 +50,7 @@ INSTALLED_APPS = [
 ]
 import os
 from dotenv import load_dotenv
-load_dotenv()
+load_dotenv(override=True)
 
 # Después de cargar las variables de entorno
 DIDIT_CLIENT_ID = os.getenv('DIDIT_CLIENT_ID')
